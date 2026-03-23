@@ -1,379 +1,305 @@
 import { useEffect, useRef, useState } from 'react';
-import { Wallet, Users, Heart, MessageSquare, Twitter, User, Share2 } from 'lucide-react';
+import { Wallet, Trophy, User, Sparkles, Gamepad2, ArrowRight } from 'lucide-react';
 
 const TRACK_WIDTH = 800;
 const TRACK_HEIGHT = 600;
+const KART_SPEED = 4.5;
+const TURN_SPEED = 0.08;
+const TAIL_SPACING = 5;
 
-interface Kart {
-  x: number;
-  y: number;
-  angle: number;
-  speed: number;
-}
-
-interface Cup {
-  x: number;
-  y: number;
-  active: boolean;
-}
+interface Point { x: number; y: number; angle: number; }
+interface Cup { x: number; y: number; active: boolean; }
 
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [balance, setBalance] = useState(0);
+  const [balance, setBalance] = useState(0.00);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [broPoints] = useState(33202);
+  const [gameOver, setGameOver] = useState(false);
+  const [score, setScore] = useState(0);
 
+  const kart = useRef<Point>({ x: 400, y: 300, angle: 0 });
+  const trail = useRef<Point[]>([]); 
+  const targetLength = useRef<number>(15);
   const keys = useRef<{ [key: string]: boolean }>({});
-  const kart = useRef<Kart>({ x: 400, y: 300, angle: 0, speed: 0 });
-  
-  // Neon track bounds (simple oval)
-  const trackPath = useRef<Path2D>();
+  const [cup, setCup] = useState<Cup>({ x: 600, y: 300, active: true });
 
-  const [cups, setCups] = useState<Cup[]>([]);
+  const startGame = () => {
+    kart.current = { x: 400, y: 300, angle: 0 };
+    trail.current = [];
+    targetLength.current = 15;
+    setScore(0);
+    setGameOver(false);
+    setIsPlaying(true);
+    spawnCup();
+  };
+
+  const spawnCup = () => {
+    setCup({
+      x: 60 + Math.random() * (TRACK_WIDTH - 120),
+      y: 60 + Math.random() * (TRACK_HEIGHT - 120),
+      active: true
+    });
+  };
 
   useEffect(() => {
-    // Generate initial cups
-    const initialCups = Array.from({ length: 5 }).map(() => ({
-      x: 100 + Math.random() * 600,
-      y: 100 + Math.random() * 400,
-      active: true,
-    }));
-    setCups(initialCups);
-    
-    trackPath.current = new Path2D();
-    trackPath.current.ellipse(400, 300, 300, 200, 0, 0, 2 * Math.PI);
+    const onKeyDown = (e: KeyboardEvent) => { keys.current[e.code] = true; };
+    const onKeyUp = (e: KeyboardEvent) => { keys.current[e.code] = false; };
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    return () => { window.removeEventListener('keydown', onKeyDown); window.removeEventListener('keyup', onKeyUp); };
   }, []);
 
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => { keys.current[e.code] = true; };
-    const handleKeyUp = (e: KeyboardEvent) => { keys.current[e.code] = false; };
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!isPlaying) return;
-
+    if (!isPlaying || gameOver) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
     let animId: number;
-    let particles: {x: number, y: number, alpha: number}[] = [];
 
     const loop = () => {
       const k = kart.current;
 
-      // Controls
-      if (keys.current['ArrowUp'] || keys.current['KeyW']) {
-        k.speed += 0.2;
-      } else if (keys.current['ArrowDown'] || keys.current['KeyS']) {
-        k.speed -= 0.2;
-      } else {
-        k.speed *= 0.95; // Friction
-      }
+      if (keys.current['ArrowLeft'] || keys.current['KeyA']) k.angle -= TURN_SPEED;
+      if (keys.current['ArrowRight'] || keys.current['KeyD']) k.angle += TURN_SPEED;
 
-      if (Math.abs(k.speed) > 0.1) {
-        if (keys.current['ArrowLeft'] || keys.current['KeyA']) {
-          k.angle -= 0.05 * Math.sign(k.speed);
-        }
-        if (keys.current['ArrowRight'] || keys.current['KeyD']) {
-          k.angle += 0.05 * Math.sign(k.speed);
-        }
-      }
+      k.x += Math.cos(k.angle) * KART_SPEED;
+      k.y += Math.sin(k.angle) * KART_SPEED;
 
-      // Max speed limit
-      k.speed = Math.max(-3, Math.min(k.speed, 6));
-
-      // Update pos
-      const nextX = k.x + Math.cos(k.angle) * k.speed;
-      const nextY = k.y + Math.sin(k.angle) * k.speed;
+      trail.current.unshift({ x: k.x, y: k.y, angle: k.angle });
       
-      // Simple bound checking inside canvas
-      if (nextX > 50 && nextX < canvas.width - 50) k.x = nextX;
-      else k.speed *= -0.5;
-      
-      if (nextY > 50 && nextY < canvas.height - 50) k.y = nextY;
-      else k.speed *= -0.5;
-
-      // Exhaust particles
-      if (Math.abs(k.speed) > 2) {
-        particles.push({
-          x: k.x - Math.cos(k.angle) * 20 + (Math.random() - 0.5) * 10,
-          y: k.y - Math.sin(k.angle) * 20 + (Math.random() - 0.5) * 10,
-          alpha: 1
-        });
+      const maxHistory = targetLength.current * TAIL_SPACING;
+      if (trail.current.length > maxHistory) {
+        trail.current.pop();
       }
 
-      // Draw Background
-      ctx.fillStyle = '#0A0014'; // Dark background
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      // Draw Neon Track limits
-      ctx.save();
-      ctx.strokeStyle = '#00FFFF';
-      ctx.lineWidth = 4;
-      ctx.shadowColor = '#00FFFF';
-      ctx.shadowBlur = 15;
-      if (trackPath.current) {
-        ctx.stroke(trackPath.current);
-        ctx.strokeStyle = '#FF007F';
-        ctx.shadowColor = '#FF007F';
-        ctx.lineWidth = 1;
-        ctx.stroke(trackPath.current);
+      // Check wall collision
+      if (k.x < 5 || k.x > TRACK_WIDTH - 5 || k.y < 5 || k.y > TRACK_HEIGHT - 5) {
+        setGameOver(true);
+        setIsPlaying(false);
+        return;
       }
-      ctx.restore();
 
-      // Collect cups
-      setCups(prev => {
-        let changed = false;
-        const nextCups = prev.map(c => {
-          if (!c.active) return c;
-          const dist = Math.hypot(c.x - k.x, c.y - k.y);
-          if (dist < 30) {
-            changed = true;
-            setBalance(b => b + 1.25);
-            return { ...c, active: false };
-          }
-          return c;
-        });
-        
-        // respawn if all inactive
-        if (changed && nextCups.every(c => !c.active)) {
-           return nextCups.map(() => ({
-              x: 100 + Math.random() * 600,
-              y: 100 + Math.random() * 400,
-              active: true
-           }));
+      // Check self collision (give head start to not hit immediate neck)
+      for (let i = TAIL_SPACING * 4; i < trail.current.length; i += TAIL_SPACING) {
+        const seg = trail.current[i];
+        if (seg) {
+            const dist = Math.hypot(k.x - seg.x, k.y - seg.y);
+            if (dist < 12) {
+            setGameOver(true);
+            setIsPlaying(false);
+            return;
+            }
         }
-        return nextCups;
-      });
+      }
 
-      // Draw Cups
-      cups.forEach(c => {
-        if (!c.active) return;
+      // Check eating
+      if (cup.active) {
+        const dist = Math.hypot(k.x - cup.x, k.y - cup.y);
+        if (dist < 25) {
+          targetLength.current += 3;
+          setScore(s => s + 10);
+          setBalance(b => b + 0.50);
+          spawnCup();
+        }
+      }
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Grid Pattern
+      ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+      ctx.lineWidth = 1;
+      for (let i = 0; i < canvas.width; i += 40) { ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, canvas.height); ctx.stroke(); }
+      for (let i = 0; i < canvas.height; i += 40) { ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(canvas.width, i); ctx.stroke(); }
+
+      // Draw Cup (Node)
+      if (cup.active) {
         ctx.save();
-        ctx.translate(c.x, c.y);
-        ctx.fillStyle = '#D2143A';
-        ctx.shadowColor = '#FF0000';
+        ctx.translate(cup.x, cup.y);
+        ctx.fillStyle = '#FF0055';
+        ctx.shadowColor = '#FF0055';
         ctx.shadowBlur = 15;
-        ctx.beginPath();
-        ctx.moveTo(-10, -15);
-        ctx.lineTo(10, -15);
-        ctx.lineTo(7, 15);
-        ctx.lineTo(-7, 15);
-        ctx.closePath();
-        ctx.fill();
-        ctx.strokeStyle = 'white';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(-10, -10, 20, 2);
+        ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#FFF'; 
+        ctx.beginPath(); ctx.arc(-2, -2, 2, 0, Math.PI*2); ctx.fill();
         ctx.restore();
-      });
+      }
 
-      // Draw Particles
-      particles.forEach(p => {
-        ctx.fillStyle = `rgba(0, 255, 255, ${p.alpha})`;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
-        ctx.fill();
-        p.alpha -= 0.05;
-      });
-      particles = particles.filter(p => p.alpha > 0);
+      // Draw Tail
+      for (let i = trail.current.length - 1; i >= 0; i -= TAIL_SPACING) {
+        const seg = trail.current[i];
+        if (!seg) continue;
+        ctx.save();
+        ctx.translate(seg.x, seg.y);
+        ctx.rotate(seg.angle);
+        const ratio = 1 - (i / trail.current.length);
+        ctx.fillStyle = `hsla(320, 100%, ${60 + ratio * 20}%, ${ratio + 0.2})`;
+        ctx.shadowColor = '#FF00AA';
+        ctx.shadowBlur = 8;
+        ctx.beginPath(); ctx.arc(0, 0, 6 + ratio * 2, 0, Math.PI*2); ctx.fill();
+        ctx.restore();
+      }
 
-      // Draw Kart (Cyberpunk top-down car)
+      // Draw Head (Kart)
       ctx.save();
       ctx.translate(k.x, k.y);
       ctx.rotate(k.angle);
-      
-      // Car body
-      ctx.fillStyle = '#FF007F';
-      ctx.shadowColor = '#FF007F';
-      ctx.shadowBlur = 10;
-      ctx.fillRect(-15, -10, 30, 20);
-      
-      // Windshield
       ctx.fillStyle = '#00FFFF';
-      ctx.shadowBlur = 0;
-      ctx.fillRect(0, -8, 8, 16);
-      
-      // Wheels
-      ctx.fillStyle = '#111';
-      ctx.fillRect(-12, -12, 8, 4);
-      ctx.fillRect(4, -12, 8, 4);
-      ctx.fillRect(-12, 8, 8, 4);
-      ctx.fillRect(4, 8, 8, 4);
-
+      ctx.shadowColor = '#00FFFF';
+      ctx.shadowBlur = 15;
+      ctx.beginPath();
+      ctx.moveTo(12, 0);
+      ctx.lineTo(-8, 8);
+      ctx.lineTo(-8, -8);
+      ctx.closePath();
+      ctx.fill();
       ctx.restore();
 
-      animId = requestAnimationFrame(loop);
+      animId = window.requestAnimationFrame(loop);
     };
 
-    loop();
-
-    return () => cancelAnimationFrame(animId);
-  }, [isPlaying, cups]);
+    animId = window.requestAnimationFrame(loop);
+    return () => window.cancelAnimationFrame(animId);
+  }, [isPlaying, gameOver, cup]);
 
   return (
-    <div className="min-h-screen bg-bro-dark text-white font-sans overflow-hidden flex flex-col">
-      {/* Top Navigation */}
-      <header className="flex items-center justify-between px-6 py-4 border-b border-white/10 relative z-10 bg-black/50 backdrop-blur-md">
-        <div className="flex items-center gap-6">
-          <button className="flex items-center gap-2 hover:text-neon-pink transition-colors">
-            <User size={18} /> Support
-          </button>
-          <button className="flex items-center gap-2 hover:text-neon-pink transition-colors">
-            <Users size={18} /> Referrals
-          </button>
-        </div>
+    <div className="min-h-screen bg-[#030305] text-white font-sans overflow-hidden selection:bg-pink-500/30">
+      <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-pink-600/10 blur-[150px] rounded-full pointer-events-none" />
+      <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] bg-blue-600/10 blur-[150px] rounded-full pointer-events-none" />
 
-        <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-3">
-          {/* Logo element representing Red Solo Cup */}
-          <div className="w-6 h-8 bg-bro-red rounded-b-md border-t-2 border-white transform origin-bottom perspective-[200px] rotate-x-12 shadow-[0_0_15px_#D2143A]"></div>
-          <h1 className="text-2xl font-black tracking-wider text-white select-none mr-4">BRO.FUN</h1>
-          <span className="text-neon-pink font-mono text-xs font-bold border border-neon-pink px-2 py-0.5 rounded tracking-widest uppercase">Beta</span>
+      <nav className="relative z-50 border-b border-white/5 bg-[#030305]/60 backdrop-blur-2xl px-8 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-8">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-tr from-pink-600 to-purple-600 shadow-lg shadow-pink-500/20">
+              <Gamepad2 className="text-white w-5 h-5" />
+            </div>
+            <h1 className="text-xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-white/70">
+              BRO.FUN
+            </h1>
+          </div>
+          <div className="hidden md:flex items-center gap-8 text-sm font-medium text-white/40">
+            <button className="text-white hover:text-white transition-colors">Play</button>
+            <button className="hover:text-white transition-colors">Leaderboard</button>
+            <button className="hover:text-white transition-colors">Rewards</button>
+          </div>
         </div>
 
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 bg-white/5 px-4 py-2 rounded-lg border border-white/10 hover:border-neon-cyan/50 transition-colors">
-            <Wallet size={18} className="text-neon-cyan" />
-            <span className="font-mono font-bold">{balance.toFixed(2)} MONAD</span>
+          <div className="flex items-center gap-3 px-4 py-2 rounded-full bg-white/5 border border-white/5">
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-sm font-mono font-medium">{balance.toFixed(2)} MONAD</span>
           </div>
-          <button className="bg-white/10 hover:bg-white/20 text-white px-6 py-2 rounded-lg font-bold transition-all border border-white/20">
-            Sign in
+          <button className="px-5 py-2 text-sm font-semibold rounded-full bg-white text-black hover:bg-white/90 transition-all shadow-lg shadow-white/10 flex items-center gap-2">
+            <Wallet size={16} />
+            Connect 
           </button>
         </div>
-      </header>
+      </nav>
 
-      {/* Main Content Area */}
-      <main className="flex-1 flex w-full max-w-[1600px] mx-auto px-6 py-8 gap-8 relative z-0">
-        
-        {/* Cinematic Game Area (Left/Center) */}
-        <div className="flex-1 relative flex flex-col items-center justify-center">
-          
-          {/* Neon BG ambiance */}
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[600px] bg-neon-pink/5 rounded-full blur-[120px] pointer-events-none"></div>
-          
-          <div className="relative group rounded-2xl overflow-hidden border border-white/10 shadow-[0_0_50px_rgba(0,255,255,0.1)] bg-black">
-            
-            <canvas 
-              ref={canvasRef} 
-              width={TRACK_WIDTH} 
-              height={TRACK_HEIGHT} 
-              className={`block max-w-full rounded-2xl ${isPlaying ? 'cursor-none' : 'opacity-50 blur-sm'}`}
+      <main className="relative z-10 max-w-7xl mx-auto px-6 py-10 flex flex-col lg:flex-row gap-8 items-start">
+        <div className="flex-1 w-full rounded-3xl p-1 bg-gradient-to-b from-white/10 to-transparent shadow-2xl">
+          <div className="relative w-full aspect-[4/3] bg-[#0A0A0C] rounded-[22px] overflow-hidden flex items-center justify-center ring-1 ring-white/5">
+            <canvas
+              ref={canvasRef}
+              width={TRACK_WIDTH}
+              height={TRACK_HEIGHT}
+              className="w-full h-full object-contain"
             />
-
+            
             {!isPlaying && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm z-20">
-                <div className="flex items-center gap-4 mb-8">
-                  <div className="w-16 h-20 bg-bro-red rounded-b-xl border-t-4 border-white shadow-[0_0_30px_#D2143A]"></div>
-                  <div className="w-16 h-20 bg-bro-red rounded-b-xl border-t-4 border-white shadow-[0_0_30px_#D2143A]"></div>
-                  <div className="w-16 h-20 bg-bro-red rounded-b-xl border-t-4 border-white shadow-[0_0_30px_#D2143A]"></div>
+              <div className="absolute inset-0 bg-black/60 backdrop-blur-md flex flex-col items-center justify-center p-8 text-center ring-1 ring-white/10">
+                {gameOver && (
+                  <div className="mb-8 animate-in slide-in-from-bottom-4 fade-in duration-500">
+                    <h2 className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-rose-400 mb-2">
+                      WRECKED
+                    </h2>
+                    <p className="text-white/60 font-mono text-lg">Score: {score}</p>
+                  </div>
+                )}
+                <div className="w-16 h-16 mb-6 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center shadow-xl shadow-blue-500/20 rotate-3 hover:rotate-6 transition-transform">
+                  <Sparkles className="w-8 h-8 text-white" />
                 </div>
-                
-                <div className="flex items-center gap-4 mb-4">
-                  <button className="bg-bro-red hover:bg-red-600 text-white font-bold text-xl px-12 py-4 rounded-xl shadow-[0_0_20px_#D2143A] transition-all transform hover:scale-105 uppercase tracking-wide">
-                    Sign in
-                  </button>
-                  <span className="text-white/50 font-bold uppercase">or</span>
-                  <button 
-                    onClick={() => setIsPlaying(true)}
-                    className="bg-white text-black hover:bg-gray-200 font-bold text-xl px-12 py-4 rounded-xl shadow-[0_0_20px_rgba(255,255,255,0.5)] transition-all transform hover:scale-105 uppercase tracking-wide"
-                  >
-                    Play Demo
-                  </button>
+                <h2 className="text-3xl font-bold mb-4 tracking-tight">
+                  {gameOver ? "Ride Again?" : "Web3 Snake Kart"}
+                </h2>
+                <p className="text-white/40 mb-8 max-w-sm">
+                  Steer with Arrow Keys. Eat the nodes. Grow your tail. Don't crash.
+                </p>
+                <button 
+                  onClick={startGame}
+                  className="group relative px-8 py-4 bg-white text-black font-bold text-lg rounded-full flex items-center gap-3 hover:scale-105 transition-all duration-300"
+                >
+                  {gameOver ? "Retry Drive" : "Start Engine"}
+                  <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                </button>
+              </div>
+            )}
+
+            {isPlaying && (
+              <div className="absolute top-6 left-6 flex items-center gap-4">
+                <div className="px-4 py-2 rounded-full bg-black/50 backdrop-blur border border-white/10 text-white font-mono font-bold flex items-center gap-2 shadow-lg">
+                  <Sparkles size={16} className="text-pink-500" />
+                  Score: {score}
                 </div>
-                <a href="#" className="text-sm text-white/50 hover:text-white underline underline-offset-4 mt-6">How does this work?</a>
-                
-                <p className="mt-8 text-neon-cyan font-mono animate-pulse">Controls: WASD or Arrow Keys to Drive!</p>
               </div>
             )}
           </div>
         </div>
 
-        {/* Right Sidebar (Leaderboard & Points) */}
-        <div className="w-[380px] flex flex-col gap-6 shrink-0 relative z-10">
-          
-          {/* Leaderboard */}
-          <div className="bg-[#110A1A] rounded-xl border border-white/10 overflow-hidden shadow-2xl">
-            <div className="flex items-center justify-center py-4 border-b border-white/10 bg-black/30">
-              <h2 className="text-lg font-black uppercase tracking-widest text-white shadow-neon-pink drop-shadow-[0_0_8px_#FF007F]">Leaderboard</h2>
-            </div>
-            <div className="flex border-b border-white/10">
-              <button className="flex-1 py-3 text-xs font-bold tracking-widest text-white/50 hover:text-white transition-colors uppercase">Weekly</button>
-              <button className="flex-1 py-3 bg-bro-red text-white text-xs font-bold tracking-widest uppercase">All Time</button>
+        <div className="w-full lg:w-[350px] flex flex-col gap-6">
+          <div className="rounded-3xl bg-white/[0.02] border border-white/5 p-6 backdrop-blur-xl">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="p-2 rounded-lg bg-pink-500/20 text-pink-500">
+                <Trophy size={18} />
+              </div>
+              <h3 className="font-semibold tracking-tight text-lg text-white/90">Top Racers</h3>
             </div>
             
-            <div className="flex justify-between px-6 py-3 text-[10px] uppercase font-black text-white/40 tracking-widest border-b border-white/5">
-              <span>Player</span>
-              <span>Bro Points</span>
-            </div>
-
-            <div className="flex flex-col">
+            <div className="space-y-4">
               {[
-                { name: 'whaddadem', pts: '+60,745 MON' },
-                { name: 'chadding', pts: '+57,966 MON' },
-                { name: 'leo', pts: '+57,394 MON' },
-                { name: 'Oblonecoinob', pts: '+49,942 MON' },
-                { name: 'Demonidus', pts: '+47,550 MON' },
-                { name: 'JAGS', pts: '+37,644 MON' },
-                { name: '343434', pts: '+33,205 MON' },
-                { name: 'MonadRunClub', pts: '+33,202 MON' },
+                { name: 'whaddadem', pts: '80.7k' },
+                { name: 'chadding', pts: '57.9k' },
+                { name: 'leo', pts: '57.3k' },
+                { name: 'monadG', pts: '49.9k' },
               ].map((player, i) => (
-                <div key={i} className={`flex justify-between items-center px-6 py-3 hover:bg-white/5 transition-colors cursor-pointer group ${i < 3 ? 'text-white' : 'text-white/70'}`}>
+                <div key={i} className="flex items-center justify-between group cursor-pointer p-2 -mx-2 rounded-xl hover:bg-white/5 transition-colors">
                   <div className="flex items-center gap-3">
-                    <span className="font-mono text-white/30 text-xs w-4">{i + 1}</span>
-                    <span className="font-bold text-sm group-hover:text-neon-cyan transition-colors">{player.name}</span>
+                    <span className="text-white/20 font-mono text-sm w-4">{i + 1}</span>
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-pink-500/20 to-purple-500/20 border border-white/10" />
+                    <span className="font-medium text-white/70 group-hover:text-white transition-colors">{player.name}</span>
                   </div>
-                  <span className="font-mono text-xs font-bold text-[#00FF00] drop-shadow-[0_0_5px_rgba(0,255,0,0.3)]">{player.pts}</span>
+                  <span className="text-emerald-400 font-mono text-sm">{player.pts}</span>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Earn Points */}
-          <div className="bg-[#110A1A] rounded-xl border border-white/10 overflow-hidden shadow-2xl">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-black/30">
-              <h2 className="text-sm font-black uppercase tracking-widest text-white">Earn More Bro Points</h2>
-              <span className="text-neon-pink font-mono font-bold text-sm animate-pulse">{broPoints.toLocaleString()}</span>
-            </div>
+          <div className="rounded-3xl bg-gradient-to-b from-white/[0.04] to-transparent border border-white/5 p-6 backdrop-blur-xl">
+            <h3 className="font-semibold tracking-tight text-lg mb-6 flex items-center gap-2 text-white/90">
+              <User size={18} className="text-blue-400" />
+              Daily Quests
+            </h3>
             
-            <div className="flex flex-col">
+            <div className="space-y-3">
               {[
-                { label: 'Refer friends', icon: Users, reward: '+100', progress: '0/5' },
-                { label: 'Follow @bro_dot_fun', icon: Twitter, reward: '+150' },
-                { label: 'Like this', icon: Heart, reward: '+50' },
-                { label: 'Retweet this', icon: Share2, reward: '+50' },
-                { label: 'Comment on this', icon: MessageSquare, reward: '+50' },
-              ].map((task, i) => (
-                <button key={i} className="flex justify-between items-center px-6 py-4 border-b border-white/5 hover:bg-white/5 transition-colors text-left group">
-                  <div className="flex items-center gap-3">
-                    <div className="text-bro-red group-hover:text-neon-pink transition-colors">
-                      <task.icon size={16} />
-                    </div>
-                    <div>
-                      <span className="text-sm font-bold text-white/90 group-hover:text-white block">{task.label}</span>
-                      {task.progress && <span className="text-xs font-mono text-white/40">{task.progress}</span>}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono font-bold text-sm">{task.reward}</span>
-                    <span className="text-white/30 group-hover:text-white/80 transform group-hover:translate-x-1 transition-all">→</span>
-                  </div>
-                </button>
+                { label: 'Share on X', reward: '+150 MON', done: false },
+                { label: 'Win 3 Races', reward: '+300 MON', done: true },
+                { label: 'Refer a Bro', reward: '+500 MON', done: false },
+              ].map((q, i) => (
+                <div key={i} className="flex items-center justify-between p-4 rounded-2xl bg-black/40 border border-white/5">
+                  <span className={`text-sm font-medium ${q.done ? 'text-white/20 line-through' : 'text-white/80'}`}>
+                    {q.label}
+                  </span>
+                  <span className={`text-xs font-mono px-2 py-1 rounded-md ${q.done ? 'bg-white/5 text-white/20' : 'bg-emerald-400/10 text-emerald-400'}`}>
+                    {q.reward}
+                  </span>
+                </div>
               ))}
             </div>
           </div>
-          
         </div>
-
       </main>
-      
-      {/* Bottom Floating Menu / Overlay UI logic could go here */}
     </div>
   );
 }
