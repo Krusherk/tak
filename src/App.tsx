@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Trophy, Wallet, Users, Heart, MessageSquare, Twitter, X, User } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Wallet, Users, Heart, MessageSquare, Twitter, User, Share2 } from 'lucide-react';
 
 const TRACK_WIDTH = 800;
 const TRACK_HEIGHT = 600;
@@ -21,7 +21,7 @@ export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [balance, setBalance] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [broPoints, setBroPoints] = useState(33202);
+  const [broPoints] = useState(33202);
 
   const keys = useRef<{ [key: string]: boolean }>({});
   const kart = useRef<Kart>({ x: 400, y: 300, angle: 0, speed: 0 });
