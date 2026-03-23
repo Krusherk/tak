@@ -1,0 +1,15 @@
+@import "tailwindcss";
+
+@theme {
+  --color-neon-pink: #FF007F;
+  --color-neon-cyan: #00FFFF;
+  --color-bro-red: #D2143A;
+  --color-bro-dark: #0A0014;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background-color: var(--color-bro-dark);
+}
